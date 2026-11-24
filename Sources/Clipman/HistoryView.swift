@@ -4,6 +4,11 @@ import SwiftUI
 struct HistoryView: View {
     @ObservedObject var model: HistoryViewModel
     @FocusState private var searchFocused: Bool
+    /// Last screen-space mouse position seen by a row hover, used to tell real
+    /// mouse movement apart from rows scrolling underneath a stationary cursor.
+    @State private var lastHoverLocation: NSPoint?
+    /// Selection that came from hovering; such changes shouldn't auto-scroll.
+    @State private var hoverSelection: UUID?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,6 +59,9 @@ struct HistoryView: View {
                             .contentShape(Rectangle())
                             .onTapGesture(count: 2) { model.choose(item) }
                             .onTapGesture { model.selection = item.id }
+                            .onContinuousHover { phase in
+                                if case .active = phase { hovered(item) }
+                            }
                             .contextMenu {
                                 Button("Copy") { model.choose(item) }
                                 Button("Delete") {
@@ -66,10 +74,23 @@ struct HistoryView: View {
                 .padding(6)
             }
             .onChange(of: model.selection) { _, id in
-                guard let id else { return }
+                guard let id, id != hoverSelection else { return }
                 proxy.scrollTo(id)
             }
         }
+    }
+
+    /// Focus follows the mouse, but only when the pointer actually moved —
+    /// otherwise keyboard navigation that scrolls the list (or the panel opening
+    /// under the cursor) would have its selection stolen by whatever row lands
+    /// beneath the pointer.
+    private func hovered(_ item: ClipItem) {
+        let location = NSEvent.mouseLocation
+        defer { lastHoverLocation = location }
+        guard let last = lastHoverLocation, last != location else { return }
+        guard model.selection != item.id else { return }
+        hoverSelection = item.id
+        model.selection = item.id
     }
 
     private var emptyState: some View {
